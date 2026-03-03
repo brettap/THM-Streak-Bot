@@ -3,7 +3,7 @@ name: TryHackMe Streak Bot
 on:
   schedule:
     # Run daily at 10:30 PM IST (17:00 UTC)
-    - cron: '0 17 * * *'
+    - cron: '0 16,17,18 * * *'
   workflow_dispatch:  # Allows manual triggering
 
 jobs:
