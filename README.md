@@ -1,3 +1,4 @@
+![Streak Bot](https://github.com/brettap/THM-Streak-Bot/actions/workflows/thmbot.yml/badge.svg)
 # TryHackMe Streak Bot
 
 An automated bot that maintains your TryHackMe streak using GitHub Actions. Set it up once and never worry about losing your streak again!
