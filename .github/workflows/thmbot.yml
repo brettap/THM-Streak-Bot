@@ -2,68 +2,95 @@ name: TryHackMe Streak Bot
 
 on:
   schedule:
-    # Run daily at 10:30 PM IST (17:00 UTC)
-    - cron: '0 16,17,18 * * *'
-  workflow_dispatch:  # Allows manual triggering
+    # Runs at 16:00, 17:00, 18:00 UTC daily (3 attempts/day for reliability)
+    - cron: "0 16,17,18 * * *"
+  workflow_dispatch:
 
 jobs:
   maintain-streak:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: "3.10"
+          cache: "pip"
 
-      - name: Install Firefox and Geckodriver
+      # Use Firefox ESR (more stable on GitHub runners) and ensure xvfb is available
+      - name: Install Firefox ESR + Xvfb + deps
         run: |
+          set -e
           sudo apt-get update
-          sudo apt-get install -y firefox xvfb
-          wget https://github.com/mozilla/geckodriver/releases/download/v0.33.0/geckodriver-v0.33.0-linux64.tar.gz
-          tar -xzf geckodriver-v0.33.0-linux64.tar.gz
+          sudo apt-get install -y firefox-esr xvfb wget tar
+
+      - name: Install Geckodriver
+        run: |
+          set -e
+          GECKO_VER="0.33.0"
+          wget -q "https://github.com/mozilla/geckodriver/releases/download/v${GECKO_VER}/geckodriver-v${GECKO_VER}-linux64.tar.gz"
+          tar -xzf "geckodriver-v${GECKO_VER}-linux64.tar.gz"
           chmod +x geckodriver
-          sudo mv geckodriver /usr/local/bin/
+          sudo mv geckodriver /usr/local/bin/geckodriver
+          geckodriver --version
 
       - name: Install FFmpeg
         run: |
+          set -e
           sudo apt-get install -y ffmpeg
 
       - name: Verify dependency versions
         run: |
-          firefox --version
+          firefox --version || true
+          firefox-esr --version || true
           geckodriver --version
           python --version
           pip --version
 
-      - name: Install dependencies
+      - name: Install Python dependencies
         run: |
+          set -e
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          pip show selenium pydub SpeechRecognition
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
+          # Optional: show key packages if present (won't fail if not installed)
+          pip show selenium pydub SpeechRecognition || true
 
       - name: Create account configuration
         run: |
-          echo "[account]" > account.conf
-          echo "mail = ${{ secrets.THM_EMAIL }}" >> account.conf
-          echo "pass = ${{ secrets.THM_PASSWORD }}" >> account.conf
+          set -e
+          cat > account.conf <<'EOF'
+          [account]
+          mail = __THM_EMAIL__
+          pass = __THM_PASSWORD__
+          EOF
+          sed -i "s/__THM_EMAIL__/${{ secrets.THM_EMAIL }}/" account.conf
+          sed -i "s/__THM_PASSWORD__/${{ secrets.THM_PASSWORD }}/" account.conf
 
-      - name: Setup virtual display
+      # Start Xvfb and keep DISPLAY available for subsequent steps
+      - name: Start virtual display
         run: |
-          Xvfb :99 &
-          export DISPLAY=:99
+          set -e
+          Xvfb :99 -screen 0 1920x1080x24 -ac +extension RANDR &
+          echo "DISPLAY=:99" >> $GITHUB_ENV
+          sleep 2
 
-      - name: Run THM Bot with timeout
+      # The previous 5m timeout killed the bot (exit code 124) before it finished.
+      # This makes it run long enough and FAILS the workflow if it times out.
+      - name: Run THM Bot (with timeout)
         run: |
-          timeout 5m python main.py
-        env:
-          DISPLAY: :99
-        continue-on-error: true
+          set -e
+          export TERM=xterm
+          timeout 20m python -u main.py || (echo "THM bot timed out or failed" && exit 1)
 
-      - name: Upload log and screenshots as artifact
-        uses: actions/upload-artifact@master
+      - name: Upload logs and screenshots as artifact (always)
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
           name: thm-bot-logs
           path: |
